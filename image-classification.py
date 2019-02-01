@@ -11,7 +11,7 @@ from keras.preprocessing.image import ImageDataGenerator
 from keras.models import Model
 from keras.optimizers import SGD
 
-config = tf.ConfigProto(allow_soft_placement=True)
+config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
 
 # "Best-fit with coalescing" algorithm for memory allocation
 config.gpu_options.allocator_type = 'BFC'
@@ -27,7 +27,9 @@ def train(image_dir):
     x = Dense(1024, activation='relu')(
         x)  # we add dense layers so that the model can learn more complex functions and classify for better results.
     x = Dropout(0.5)(x)
-    x = Dense(1024, activation='relu')(x)  # dense layer 2
+    x = Dense(1024, activation='relu')(x)
+    x = Dropout(0.5)(x)
+    x = Dense(512, activation='relu')(x)
     preds = Dense(num_classes, activation='softmax')(x)  # final layer with softmax activation
 
     model = Model(inputs=base_model.input, outputs=preds)
@@ -49,15 +51,10 @@ def train(image_dir):
     # loss function will be categorical cross entropy
     # evaluation metric will be accuracy
 
-    from tensorflow.python.client import device_lib
-
-    print(device_lib.list_local_devices())
-
-
     step_size_train = train_generator.n // train_generator.batch_size
     model.fit_generator(generator=train_generator,
-                            steps_per_epoch=step_size_train,
-                            epochs=20)
+                        steps_per_epoch=step_size_train,
+                        epochs=50)
 
     model.save('model.h5')
 

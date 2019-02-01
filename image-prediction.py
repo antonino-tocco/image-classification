@@ -1,4 +1,6 @@
 import os
+import numpy as np
+from PIL import Image
 from argparse import ArgumentParser
 from keras.models import load_model
 
@@ -6,7 +8,15 @@ from keras.models import load_model
 def predict(image_path):
     model = load_model('model.h5')
 
-    model.predict(image_path)
+    image = Image.open(image_path)
+    image = image.resize((224, 224))
+
+    image = np.array(image)
+
+    image = np.expand_dims(image, axis=0)
+
+    return model.predict(image)
+
 
 
 def main():
