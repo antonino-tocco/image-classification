@@ -4,7 +4,12 @@ from argparse import ArgumentParser
 from PIL import Image
 import numpy as np
 import tensorflow as tf
-import tensornets as nets
+from keras.layers import Dense, Dropout, Flatten
+from keras.applications import VGG19
+from keras.preprocessing import image
+from keras.preprocessing.image import ImageDataGenerator
+from keras.models import Model
+from keras.optimizers import SGD
 
 config = tf.ConfigProto(allow_soft_placement=True)
 
@@ -12,104 +17,49 @@ config = tf.ConfigProto(allow_soft_placement=True)
 config.gpu_options.allocator_type = 'BFC'
 config.gpu_options.per_process_gpu_memory_fraction = 0.80
 
-epochs = 5
-
 
 def train(image_dir):
-    inputs = tf.placeholder(tf.float32, shape=(None, 224, 224, 3), name='input_x')
+    num_classes = len(os.listdir(image_dir))
+    base_model = VGG19(classes=num_classes, include_top=False, input_shape=(224, 224, 3))
 
-    outputs = tf.placeholder(tf.float32, shape=(None, 3), name='output_y')
+    x = base_model.output
+    x = Flatten()(x)
+    x = Dense(1024, activation='relu')(
+        x)  # we add dense layers so that the model can learn more complex functions and classify for better results.
+    x = Dropout(0.5)(x)
+    x = Dense(1024, activation='relu')(x)  # dense layer 2
+    preds = Dense(num_classes, activation='softmax')(x)  # final layer with softmax activation
 
-    logits = nets.VGG19(inputs, is_training=True, classes=3)
-    model = tf.identity(logits, name='logits')
+    model = Model(inputs=base_model.input, outputs=preds)
 
-    loss = tf.losses.softmax_cross_entropy(outputs, logits)
-    train = tf.train.AdamOptimizer(learning_rate=0.01).minimize(loss)
+    for layer in model.layers[:5]:
+        layer.trainable = False
 
-    correct_pred = tf.equal(tf.argmax(model, 1), tf.argmax(outputs, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32), name='accuracy')
+    train_datagen = ImageDataGenerator(rescale = 1./255, horizontal_flip = True, fill_mode = "nearest", zoom_range = 0.3, width_shift_range = 0.3, height_shift_range=0.3, rotation_range=30)
 
-    with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
-        session.run(logits.pretrained())
+    train_generator = train_datagen.flow_from_directory(image_dir,
+                                                        target_size=(224, 224),
+                                                        color_mode='rgb',
+                                                        batch_size=32,
+                                                        class_mode='categorical',
+                                                        shuffle=True)
 
-        X_train, X_valid,  Y_train, Y_valid = load_data(image_dir)
+    model.compile(optimizer=SGD(lr=0.01, momentum=0.9), loss='categorical_crossentropy', metrics=['accuracy'])
+    # Adam optimizer
+    # loss function will be categorical cross entropy
+    # evaluation metric will be accuracy
 
-        n_batches = 10
+    from tensorflow.python.client import device_lib
 
-        batch_size = math.ceil(len(X_train) / n_batches)
-        for epoch in range(epochs):
-            for batch_i in range(1, n_batches + 1):
-                for batch_features, batch_labels in batch_features_labels(X_train, Y_train, batch_size):
-
-                    session.run(train, {inputs: batch_features, outputs: batch_labels})
-
-                    print('Epoch {:>2}, Batch {}:  '.format(epoch + 1, batch_i), end='')
-
-                valid_batch_size = math.ceil(len(X_valid) / n_batches)
-                valid_acc = 0
-                for batch_valid_features, batch_valid_labels in batch_features_labels(X_valid, Y_valid, valid_batch_size):
-                    valid_acc += session.run(accuracy, {inputs: batch_valid_features, outputs: batch_valid_labels})
-
-                tmp_num = len(X_valid) / batch_size
-                print('Validation Accuracy: {:.6f}'.format(valid_acc / tmp_num))
+    print(device_lib.list_local_devices())
 
 
-def preprocess_image(filename):
-    image = Image.open(filename).convert('L')
-    image = image.resize((224, 224))
-    return np.array(image)
+    step_size_train = train_generator.n // train_generator.batch_size
+    model.fit_generator(generator=train_generator,
+                            steps_per_epoch=step_size_train,
+                            epochs=20)
 
-
-def load_classes(image_dir=None):
-    if image_dir is None:
-        raise Exception('No image dir supplied')
-
-    classnames = os.listdir(image_dir)
-
-    return classnames
-
-
-def batch_features_labels(features, labels, batch_size):
-
-    print(f'features size {len(features)} labels size {len(labels)} batch_size {batch_size}')
-
-    for start in range(0, len(features), batch_size):
-        end = min(start + batch_size, len(features))
-        yield features[start:end], labels[start:end]
-
-
-def load_data(image_dir=None):
-    if image_dir is None:
-        raise Exception('No image dir supplied')
-
-    classes = load_classes(image_dir)
-
-    X_train = []
-    X_valid = []
-    Y_train = []
-    Y_valid = []
-
-    for class_name in classes:
-        class_directory = os.path.join(image_dir, class_name)
-
-        print(f'Load directory {class_directory}')
-
-        files = os.listdir(class_directory)
-
-        num_files = len(files)
-
-        num_train = math.ceil(num_files * 0.7)
-
-        for i, file in enumerate(files):
-            if i < num_train:
-                X_train.append(preprocess_image(os.path.join(class_directory, file)))
-                Y_train.append(class_name)
-            else:
-                X_valid.append(preprocess_image(os.path.join(class_directory, file)))
-                Y_valid.append(class_name)
-
-    return X_train, X_valid, Y_train, Y_valid
+    model.save('model.h5')
 
 
 def main():
