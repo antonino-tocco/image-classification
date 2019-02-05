@@ -1,2 +1,5 @@
 .idea/
 .DS_Store
+tensorflow_model/
+model.h5
+images/
